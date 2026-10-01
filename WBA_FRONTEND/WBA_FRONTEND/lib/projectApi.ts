@@ -1,0 +1,259 @@
+import type { BuilderComponent, SEOMetadata } from "@/types/builder";
+import type { DesignTokens } from "@/store/designStore";
+import type { AnalyticsData } from "@/types/analytics";
+import { getAuthToken } from "@/lib/authToken";
+
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api";
+
+export interface ProjectBuilderData {
+  schemaVersion?: number;
+  components?: BuilderComponent[];
+  sections?: BuilderComponent[];
+  designTokens?: DesignTokens;
+  seo?: SEOMetadata;
+  canvasMode?: "flow" | "freeform";
+  projectName?: string;
+  blockPagesData?: unknown;
+}
+
+export interface ProjectApiProject {
+  _id: string;
+  projectName: string;
+  description?: string;
+  builderData?: ProjectBuilderData | null;
+  ecommerceData?: Record<string, unknown> | null;
+  editorType?: "builder" | "ecommerce" | "blockpages";
+  htmlContent?: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  category?: string;
+  style?: string;
+  sections?: string[];
+}
+
+type ProjectListResponse = {
+  success: boolean;
+  projects: ProjectApiProject[];
+};
+
+type ProjectResponse = {
+  success: boolean;
+  project: ProjectApiProject;
+};
+
+type ApiErrorBody = {
+  message?: string;
+  errors?: string[];
+};
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function getDefaultErrorMessage(status: number): string {
+  switch (status) {
+    case 400:
+      return "The project request is invalid. Please check your changes and try again.";
+    case 401:
+      return "Your session has expired. Please log in again to update this project.";
+    case 403:
+      return "You do not have permission to update this project.";
+    case 404:
+      return "This project could not be found.";
+    case 409:
+      return "This project was changed elsewhere. Refresh it and try your changes again.";
+    case 422:
+      return "One or more project settings are invalid. Please review the highlighted fields.";
+    case 500:
+      return "The project service is having trouble. Please try again shortly.";
+    default:
+      return "Something went wrong while talking to the project service.";
+  }
+}
+
+async function projectRequest<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+      ...init.headers,
+    },
+  });
+
+  const data = (await response.json().catch(() => ({}))) as ApiErrorBody & T;
+
+  if (!response.ok) {
+    // Keep authorization and server failures deliberately generic. The API can
+    // return implementation-specific messages, but settings UI should only
+    // expose actionable, user-safe feedback.
+    const shouldUseSafeMessage = [401, 403, 404, 409, 422, 500].includes(response.status);
+    const message = shouldUseSafeMessage
+      ? getDefaultErrorMessage(response.status)
+      : data.message || data.errors?.join(", ") || getDefaultErrorMessage(response.status);
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
+export function isProjectConnectionError(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      (error.message === "Failed to fetch" ||
+        error.message.includes("NetworkError") ||
+        error.message.includes("load failed")))
+  );
+}
+
+export async function getProjects(signal?: AbortSignal): Promise<ProjectApiProject[]> {
+  const data = await projectRequest<ProjectListResponse>("/projects", {
+    method: "GET",
+    signal,
+  });
+
+  return Array.isArray(data.projects) ? data.projects : [];
+}
+
+export async function getProject(id: string, signal?: AbortSignal): Promise<ProjectApiProject> {
+  const data = await projectRequest<ProjectResponse>(`/projects/${encodeURIComponent(id)}`, {
+    method: "GET",
+    signal,
+  });
+
+  return data.project;
+}
+
+export interface CreateProjectInput {
+  projectName: string;
+  category?: string;
+  style?: string;
+  sections?: string[];
+  description?: string;
+  editorType?: "builder" | "ecommerce" | "blockpages";
+}
+
+export async function createProject(
+  input: CreateProjectInput,
+  signal?: AbortSignal,
+): Promise<ProjectApiProject> {
+  const data = await projectRequest<ProjectResponse>("/projects", {
+    method: "POST",
+    body: JSON.stringify(input),
+    signal,
+  });
+
+  return data.project;
+}
+
+export async function updateProject(
+  id: string,
+  updates: Partial<Pick<ProjectApiProject, "projectName" | "description" | "category" | "style" | "sections" | "status" | "editorType">>,
+  signal?: AbortSignal,
+): Promise<ProjectApiProject> {
+  const data = await projectRequest<ProjectResponse>(`/projects/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+    signal,
+  });
+
+  return data.project;
+}
+
+export async function deleteProject(id: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+  return projectRequest(`/projects/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    signal,
+  });
+}
+
+export async function duplicateProject(id: string, signal?: AbortSignal): Promise<ProjectApiProject> {
+  const data = await projectRequest<ProjectResponse>(`/projects/${encodeURIComponent(id)}/duplicate`, {
+    method: "POST",
+    signal,
+  });
+  return data.project;
+}
+
+export async function autosaveProject(
+  id: string,
+  data: {
+    builderData?: ProjectBuilderData | Record<string, unknown>;
+    ecommerceData?: Record<string, unknown>;
+    editorType?: "builder" | "ecommerce" | "blockpages";
+    htmlContent?: string;
+    category?: string;
+    projectName?: string;
+  },
+  signal?: AbortSignal,
+): Promise<{ success: boolean; savedAt?: string }> {
+  return projectRequest(`/projects/${encodeURIComponent(id)}/autosave`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+    signal,
+  });
+}
+
+export async function saveHtml(
+  id: string,
+  htmlContent: string,
+  signal?: AbortSignal,
+): Promise<{ success: boolean; savedAt?: string }> {
+  return projectRequest(`/projects/${encodeURIComponent(id)}/save-html`, {
+    method: "PUT",
+    body: JSON.stringify({ htmlContent }),
+    signal,
+  });
+}
+
+export async function getProjectAnalytics(
+  workspaceId: string,
+  days: number,
+  signal?: AbortSignal,
+): Promise<AnalyticsData> {
+  return projectRequest<AnalyticsData>(`/analytics/${encodeURIComponent(workspaceId)}?days=${days}`, {
+    method: "GET",
+    signal,
+  });
+}
+
+/* ─── Dashboard summary (single-call) ──────────────────────────────── */
+
+export interface DashboardSummaryProject {
+  _id: string;
+  projectName: string;
+  category: string;
+  status: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface DashboardSummary {
+  projects: {
+    total: number;
+    active: number;
+    archived: number;
+    published: number;
+  };
+  analytics: {
+    totalViews: number;
+    uniqueVisitors: number;
+    todayViews: number;
+    weeklyViews: number;
+  };
+  recentProjects: DashboardSummaryProject[];
+}
+
+export async function getDashboardSummary(
+  signal?: AbortSignal,
+): Promise<DashboardSummary> {
+  return projectRequest<DashboardSummary>("/dashboard/summary", {
+    method: "GET",
+    signal,
+  });
+}

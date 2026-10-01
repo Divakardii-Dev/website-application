@@ -1,0 +1,86 @@
+import type { CSSProperties } from "react";
+import type { BuilderComponent, ComponentStyles } from "@/types/builder";
+ 
+function formatDimension(value?: string | number): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value === "number") return `${value}px`;
+  const str = String(value).trim();
+  if (/^-?\d+(\.\d+)?$/.test(str)) return `${str}px`;
+  return str;
+}
+ 
+/**
+ * Convert the builder's `ComponentStyles` to a React `CSSProperties` object.
+ * All keys are mapped 1:1 except for non-CSS helper fields like `layoutCols`.
+ */
+export const toReactStyle = (styles: ComponentStyles): CSSProperties => ({
+  color: styles.color,
+  backgroundColor: styles.backgroundColor,
+  backgroundImage: styles.backgroundImage,
+  padding: formatDimension(styles.padding) ?? styles.padding,
+  margin: formatDimension(styles.margin) ?? styles.margin,
+  borderRadius: formatDimension(styles.borderRadius) ?? styles.borderRadius,
+  fontSize: formatDimension(styles.fontSize) ?? styles.fontSize,
+  fontFamily: styles.fontFamily,
+  fontWeight: styles.fontWeight as CSSProperties["fontWeight"],
+  width: styles.width,
+  height: styles.height,
+  textAlign: styles.textAlign,
+  /* Effects */
+  opacity: styles.opacity ? parseFloat(styles.opacity) : undefined,
+  boxShadow: styles.boxShadow || undefined,
+  border: styles.border || undefined,
+  overflow: styles.overflow as CSSProperties["overflow"],
+  cursor: styles.cursor as CSSProperties["cursor"],
+  transform: styles.transform || undefined,
+  transition: styles.transition || undefined,
+  /* Freeform positioning */
+  position: styles.position as CSSProperties["position"],
+  left: styles.left || undefined,
+  top: styles.top || undefined,
+  zIndex: styles.zIndex ? parseInt(styles.zIndex, 10) : undefined,
+  minWidth: styles.minWidth || undefined,
+  minHeight: styles.minHeight || undefined,
+  /* Layout (grid / flex / alignment) */
+  flexDirection: styles.flexDirection as CSSProperties["flexDirection"],
+  justifyContent: styles.justifyContent as CSSProperties["justifyContent"],
+  alignItems: styles.alignItems as CSSProperties["alignItems"],
+  gridTemplateColumns: styles.gridTemplateColumns || undefined,
+  gridTemplateRows: styles.gridTemplateRows || undefined,
+  columnGap: styles.columnGap || undefined,
+  rowGap: styles.rowGap || undefined,
+  maxWidth: styles.maxWidth || undefined,
+  objectFit: styles.objectFit as CSSProperties["objectFit"],
+  aspectRatio: styles.aspectRatio || undefined,
+  letterSpacing: formatDimension(styles.letterSpacing) ?? styles.letterSpacing,
+  lineHeight: styles.lineHeight || undefined,
+});
+ 
+/** Convenience wrapper: accept a full BuilderComponent and return CSSProperties. */
+export const getBaseStyles = (component: BuilderComponent): CSSProperties =>
+  toReactStyle(component.styles);
+ 
+export const getTextStyles = (styles: ComponentStyles): CSSProperties => ({
+  color: styles.color,
+  fontSize: formatDimension(styles.fontSize) ?? styles.fontSize,
+  fontFamily: styles.fontFamily,
+  fontWeight: styles.fontWeight as CSSProperties["fontWeight"],
+  textAlign: styles.textAlign,
+});
+ 
+export const getTargetTextStyles = (
+  component: BuilderComponent,
+  key: string,
+  fallback?: CSSProperties,
+): CSSProperties => {
+  const override = component.textStyles?.[key];
+ 
+  return {
+    ...(fallback ?? getTextStyles(component.styles)),
+    ...(override ? toReactStyle(override as ComponentStyles) : {}),
+  };
+};
+ 
+ 
+ 
+ 

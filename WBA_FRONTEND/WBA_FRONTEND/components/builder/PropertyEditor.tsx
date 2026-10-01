@@ -1,0 +1,380 @@
+"use client";
+ 
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import * as LucideIcons from "lucide-react";
+import { Layers2, Paintbrush, Sparkles, SquareMousePointer, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { BuilderComponent } from "@/types/builder";
+import { blockRegistry } from "@/lib/blockRegistry";
+import { ICON_NAMES } from "@/components/draggable/IconComponent";
+import { ContentField, contentInputClass, TextareaField } from "@/components/builder/PanelFields";
+import { AIAssistProvider, AIGenerateSectionButton } from "@/components/builder/AIAssistDialog";
+import { StyleTab } from "./panel/StyleTab";
+import { EffectsTab } from "./panel/EffectsTab";
+import LayersPanel from "./LayersPanel";
+import { ImagePanel } from "@/components/blocks/image/ImagePanel";
+import { ROW_LAYOUTS } from "@/components/draggable/RowComponent";
+ 
+type Tab = "content" | "style" | "effects" | "layers";
+ 
+const SECTION_AI_BLOCKS = new Set([
+  "hero",
+  "contact",
+  "features",
+  "accordion",
+  "tabs",
+  "pricing-table",
+  "product-collection",
+  "testimonial",
+  "footer",
+  "form",
+  "navigation",
+  // These single-purpose blocks serve as common About/CTA sections in
+  // existing templates; the same section flow is useful even with one field.
+  "heading",
+  "text",
+  "button",
+  "feature-item",
+]);
+ 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+ 
+/**
+ * Only accept generated values that preserve the current block's top-level
+ * shape. This keeps a provider response from turning a typed array/object
+ * field into a scalar and allows one history-safe `onUpdate` for FAQ, feature,
+ * testimonial, pricing, and form section payloads.
+ */
+function getCompatibleSectionProps(
+  current: unknown,
+  generatedFields?: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!isRecord(current) || !generatedFields) return {};
+ 
+  const patch: Record<string, unknown> = {};
+  for (const [key, nextValue] of Object.entries(generatedFields)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    if (!(key in current)) continue;
+ 
+    const currentValue = current[key];
+    const compatible =
+      (typeof currentValue === "string" && typeof nextValue === "string") ||
+      (Array.isArray(currentValue) && Array.isArray(nextValue)) ||
+      (isRecord(currentValue) && isRecord(nextValue));
+ 
+    if (compatible) patch[key] = nextValue;
+  }
+  return patch;
+}
+ 
+const TABS: Array<{ id: Tab; label: string; Icon: LucideIcon }> = [
+  { id: "content",  label: "Content",  Icon: SquareMousePointer },
+  { id: "style",    label: "Style",    Icon: Paintbrush },
+  { id: "effects",  label: "Effects",  Icon: Sparkles },
+  { id: "layers",   label: "Layers",   Icon: Layers2 },
+];
+ 
+export default function PropertyEditor({
+  component,
+  onUpdate,
+  className,
+  onClose,
+}: {
+  component: BuilderComponent | null;
+  onUpdate: (id: string, updates: Partial<BuilderComponent>) => void;
+  className?: string;
+  onClose?: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<Tab>("content");
+ 
+  useEffect(() => {
+    const handleSetTab = (event: Event) => {
+      const tab = (event as CustomEvent<{ tab?: Tab }>).detail?.tab;
+      if (tab === "content" || tab === "style" || tab === "effects" || tab === "layers") {
+        setActiveTab(tab);
+      }
+    };
+ 
+    window.addEventListener("stackly:set-property-tab", handleSetTab);
+    return () => window.removeEventListener("stackly:set-property-tab", handleSetTab);
+  }, []);
+ 
+  const renderContentEditor = () => {
+    if (!component) return null;
+ 
+    const spec = blockRegistry[component.type];
+    if (spec) {
+      const data = spec.read(component);
+      const setProp = (key: string, value: unknown) =>
+        onUpdate(component.id, { props: { [key]: value } });
+      const Panel = spec.Panel;
+      return (
+        <AIAssistProvider
+          blockType={component.type}
+          description={spec.ai?.description}
+          onSectionGenerated={(_generatedText, generatedFields) => {
+            const props = getCompatibleSectionProps(data, generatedFields);
+            if (Object.keys(props).length > 0) {
+              onUpdate(component.id, { props });
+            }
+          }}
+        >
+          {SECTION_AI_BLOCKS.has(component.type) && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-2.5">
+              <span className="text-[11px] font-semibold leading-4 text-violet-900">
+                Create a coordinated draft for this section.
+              </span>
+              <AIGenerateSectionButton label={spec.label} />
+            </div>
+          )}
+          <Panel
+            component={component}
+            data={data}
+            setContent={(content) => onUpdate(component.id, { content })}
+            setProp={setProp}
+          />
+        </AIAssistProvider>
+      );
+    }
+ 
+    if (component.type === "image") {
+      return <ImagePanel component={component} onUpdate={onUpdate} />;
+    }
+ 
+    if (component.type === "columns") {
+      const cur = component.content || "3";
+      return (
+        <div className="space-y-3">
+          <span className="block text-[13px] font-bold text-[#0B1D40]">Columns</span>
+          <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-[#0B1D40]">
+            {(["2", "3", "4"] as const).map((n) => (
+              <button key={n} type="button"
+                className={`py-2.5 cursor-pointer text-sm font-bold transition ${cur === n ? "bg-[#0B1D40] text-white" : "text-[#0B1D40] hover:bg-black/5"}`}
+                onClick={() => onUpdate(component.id, { content: n })}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="rounded-lg bg-[#eef4fb] px-3 py-2 text-[11px] font-medium leading-5 text-[#566583]">
+            Drag <strong className="text-[#0B1D40]">Feature Items</strong> in to create a side-by-side layout.
+          </p>
+        </div>
+      );
+    }
+ 
+    if (component.type === "row") {
+      const currentLayout = String(component.props?.layout || component.content || "50/50");
+      return (
+        <div className="space-y-3">
+          <span className="block text-[13px] font-bold text-[#0B1D40]">Row Layout</span>
+          <div className="grid grid-cols-2 gap-2">
+            {ROW_LAYOUTS.map((layout) => (
+              <button
+                key={layout}
+                type="button"
+                className={`rounded-lg cursor-pointer border px-2 py-2.5 text-[12px] font-bold transition ${
+                  currentLayout === layout
+                    ? "border-[#0B1D40] bg-[#0B1D40] text-white"
+                    : "border-[#dbe3ef] bg-white/60 text-[#0B1D40] hover:border-blue-300 hover:bg-blue-50"
+                }`}
+                onClick={() => onUpdate(component.id, { content: layout, props: { layout } })}
+              >
+                {layout}
+              </button>
+            ))}
+          </div>
+          <p className="rounded-lg bg-[#eef4fb] px-3 py-2 text-[11px] font-medium leading-5 text-[#566583]">
+            Drop blocks into the row to arrange them across the selected column split.
+          </p>
+        </div>
+      );
+    }
+ 
+    if (component.type === "icon") {
+      return (
+        <div className="space-y-3">
+          <span className="block text-[13px] font-bold text-[#0B1D40]">Pick Icon</span>
+          <div className="grid max-h-[240px] grid-cols-7 gap-1 overflow-y-auto rounded-xl border border-[#0B1D40] p-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#0B1D40]/20">
+            {ICON_NAMES.map((name) => {
+              const Icon = (LucideIcons as unknown as Record<string, LucideIcon | undefined>)[name];
+              if (!Icon) return null;
+              const active = component.content === name;
+              return (
+                <button key={name} title={name} type="button"
+                  className={`flex cursor-pointer items-center justify-center rounded p-2 transition-all duration-150 ${active ? "bg-[#0B1D40] text-white" : "text-[#0B1D40] hover:bg-[#0B1D40]/10"}`}
+                  onClick={() => onUpdate(component.id, { content: name })}>
+                  <Icon size={16} color={active ? "white" : "#0B1D40"} />
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] font-medium text-[#566583]">
+            Selected: <span className="font-bold text-[#0B1D40]">{component.content}</span>
+          </p>
+        </div>
+      );
+    }
+ 
+    if (component.type === "spacer") {
+      const height = String(component.props?.height || component.content || "60px");
+      return (
+        <div className="space-y-3">
+          <span className="block text-[13px] font-bold text-[#0B1D40]">Spacer Height</span>
+          <input
+            type="range"
+            min="10" max="300" step="10"
+            value={parseInt(height)}
+            onChange={(e) => onUpdate(component.id, { content: `${e.target.value}px`, props: { height: `${e.target.value}px` } })}
+            className="w-full accent-[#0B1D40]"
+          />
+          <p className="text-center text-sm font-bold text-[#0B1D40]">{height}</p>
+        </div>
+      );
+    }
+ 
+    if (component.type === "map") {
+      const p = (component.props || {}) as Record<string, unknown>;
+      return (
+        <div className="space-y-3">
+          <ContentField label="Address" value={String(p.address || "")} onChange={(v) => onUpdate(component.id, { props: { ...p, address: v } })} />
+          <label className="block">
+            <span className="mb-1 block text-[13px] font-bold text-[#0B1D40]">Zoom ({Number(p.zoom) || 12})</span>
+            <input type="range" min="1" max="20" value={Number(p.zoom) || 12}
+              onChange={(e) => onUpdate(component.id, { props: { ...p, zoom: parseInt(e.target.value) } })}
+              className="w-full accent-[#0B1D40]" />
+          </label>
+          <ContentField label="Height" value={String(p.height || "300px")} onChange={(v) => onUpdate(component.id, { props: { ...p, height: v } })} />
+        </div>
+      );
+    }
+ 
+    if (component.type === "countdown") {
+      const p = (component.props || {}) as Record<string, unknown>;
+      return (
+        <div className="space-y-3">
+          <ContentField label="Label" value={String(p.label || "")} onChange={(v) => onUpdate(component.id, { props: { ...p, label: v } })} />
+          <label className="block">
+            <span className="mb-1 block text-[13px] font-bold text-[#0B1D40]">Target Date</span>
+            <input type="datetime-local" value={String(p.targetDate || "")}
+              onChange={(e) => onUpdate(component.id, { props: { ...p, targetDate: e.target.value } })}
+              className={contentInputClass} />
+          </label>
+          <ContentField label="Finished Text" value={String(p.finishedText || "")} onChange={(v) => onUpdate(component.id, { props: { ...p, finishedText: v } })} />
+        </div>
+      );
+    }
+ 
+    return (
+      <AIAssistProvider blockType={component.type}>
+        <TextareaField
+          label={component.type === "input" ? "Placeholder Text" : "Text Content"}
+          minHeight="min-h-[92px]"
+          onChange={(value) => onUpdate(component.id, { content: value })}
+          value={component.content}
+        />
+      </AIAssistProvider>
+    );
+  };
+ 
+ 
+ 
+  const asideClass =
+    className ??
+    "relative hidden h-full w-[300px] flex-shrink-0 flex-col overflow-hidden rounded-xl border border-[#f4d8cc] bg-[#fff7f4] shadow-[0_18px_45px_rgba(113,63,18,0.10)] xl:flex";
+ 
+  return (
+    <aside data-property-editor="true" className={asideClass}>
+      {/* ── Close handle (mobile sheet) ── */}
+      {onClose && (
+        <div className="relative flex items-center justify-center px-6 pb-1 pt-3">
+          <div className="h-1 w-10 rounded-full bg-gray-300" />
+          <button
+            aria-label="Close"
+            className="absolute right-4 top-3 cursor-pointer rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+            onClick={onClose}
+            type="button"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+ 
+      {/* ── Block name header ── */}
+      {component && (
+        <div className="flex items-center gap-2 border-b border-[#f0eae6] px-5 py-3">
+          <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-[#0B1D40]/10">
+            <span className="text-[10px] font-black text-[#0B1D40]">
+              {component.type.charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <span className="text-[13px] font-bold text-[#0B1D40]">
+            {component.type.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
+          </span>
+        </div>
+      )}
+ 
+      {/* ── Tabs ── */}
+      <div className="flex border-b border-[#f2d8cf] bg-white/40 px-1 pt-1">
+        {TABS.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            title={label}
+            onClick={() => setActiveTab(id)}
+            className={`flex flex-1 cursor-pointer flex-col items-center gap-0.5 rounded-t-md pb-2.5 pt-2 text-[10px] font-bold uppercase tracking-wider transition-colors duration-150 ${
+              activeTab === id
+                ? "border-b-2 border-[#0B1D40] text-[#0B1D40]"
+                : "border-b-2 border-transparent text-[#566583] hover:text-[#0B1D40]"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            <span className="hidden sm:block">{label}</span>
+          </button>
+        ))}
+      </div>
+ 
+      {/* ── Tab body ── */}
+      <div className="flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab + (component?.id ?? "none")}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="h-full"
+          >
+            {activeTab === "layers" ? (
+              <LayersPanel />
+            ) : activeTab === "style" && component ? (
+              <StyleTab component={component} onUpdate={onUpdate} />
+            ) : activeTab === "effects" && component ? (
+              <EffectsTab component={component} onUpdate={onUpdate} />
+            ) : (
+              <div className="px-5 py-5">
+                {!component ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0B1D40]/[0.08]">
+                      <Sparkles className="h-6 w-6 text-[#0B1D40]" />
+                    </div>
+                    <p className="max-w-[180px] text-[13px] font-medium leading-5 text-[#566583]">
+                      Click any block on the canvas to edit it
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">{renderContentEditor()}</div>
+                )}
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </aside>
+  );
+}
+ 
+ 
+ 

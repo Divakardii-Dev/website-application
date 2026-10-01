@@ -1,0 +1,376 @@
+"use client";
+ 
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { FaLaptop, FaMobileAlt, FaTabletAlt } from "react-icons/fa";
+import { bindPortfolioProjectsSliderNavDelegation } from "@/lib/portfolioProjectsSlider";
+import { animateStatCounterElement } from "@/lib/blockpagesStatCounter";
+import { bindBlockpagesPreviewInteractions } from "@/lib/blockpagesPreviewInteractions";
+import { sanitizeBlockpagesPreviewHtml } from "@/lib/blockpagesPreviewSanitize";
+import {
+  applyBlockpagesPreviewViewportDevice,
+  type BlockpagesPreviewCaptureDevice,
+} from "@/lib/blockpagesOverlayLayers";
+import type { TextTemplateType } from "@/app/blockpages/textblock/types";
+import {
+  TEXTBLOCK_PREVIEW_STORAGE_KEY,
+  readBlockpagesStorageItem,
+  getBlockpagesStorageKey,
+  getBlockpagesPreviewSnapshotKey,
+} from "@/lib/blockpagesEditorPersistence";
+import { routePath } from "@/lib/paths";
+import { loadBlockPagesDraft, type BlockPagesDraftPayload } from "@/lib/blockPagesDraftApi";
+import { BLOCKPAGES_PREVIEW_ROUTES } from "@/lib/blockpagesTemplates";
+
+/** Templates whose live "Desktop" control uses a framed ~1200px canvas (not full-bleed). */
+const FRAMED_DESKTOP_TEMPLATES = new Set<TextTemplateType>([
+  "ecommerce",
+  "blog",
+  "digital-marketing",
+  "business",
+  "restaurant",
+  "portfolio",
+  "construction",
+]);
+
+/**
+ * Render a simple HTML summary for a saved draft.
+ * Since saved drafts store structured JSON (not rendered HTML),
+ * we generate a basic readable preview showing what was saved.
+ */
+function renderDraftPreviewHtml(draft: BlockPagesDraftPayload): string {
+  const sections: string[] = [];
+
+  sections.push(`
+    <div style="max-width:720px;margin:48px auto;font-family:system-ui,-apple-system,sans-serif;color:#0B1D40">
+      <div style="text-align:center;margin-bottom:32px">
+        <h1 style="font-size:28px;font-weight:800;margin:0 0 8px">Saved Draft Preview</h1>
+        <p style="color:#64748b;font-size:14px">Template: <strong>${draft.template}</strong></p>
+      </div>
+  `);
+
+  // Text block section info
+  if (draft.textBlockState?.section) {
+    const s = draft.textBlockState.section;
+    sections.push(`
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;margin-bottom:16px">
+        <h2 style="font-size:16px;font-weight:700;margin:0 0 12px;color:#334155">Text Block</h2>
+        <p style="margin:4px 0;font-size:13px;color:#64748b">Header: ${s.headerText || '(empty)'}</p>
+        <p style="margin:4px 0;font-size:13px;color:#64748b">Footer: ${s.footerText || '(empty)'}</p>
+        <p style="margin:4px 0;font-size:13px;color:#64748b">Alignment: ${s.alignment}</p>
+      </div>
+    `);
+  }
+
+  // Button blocks
+  if (draft.buttonBlocks?.length) {
+    sections.push(`
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;margin-bottom:16px">
+        <h2 style="font-size:16px;font-weight:700;margin:0 0 12px;color:#334155">Button Blocks (${draft.buttonBlocks.length})</h2>
+        ${draft.buttonBlocks.map(b => `<p style="margin:4px 0;font-size:13px;color:#64748b">• ${b.props.content || b.type} (${b.id})</p>`).join("")}
+      </div>
+    `);
+  }
+
+  // Video blocks
+  if (draft.videoBlocks?.length) {
+    sections.push(`
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;margin-bottom:16px">
+        <h2 style="font-size:16px;font-weight:700;margin:0 0 12px;color:#334155">Video Blocks (${draft.videoBlocks.length})</h2>
+        ${draft.videoBlocks.map(b => `<p style="margin:4px 0;font-size:13px;color:#64748b">• ${b.props.sourceType} (${b.id})</p>`).join("")}
+      </div>
+    `);
+  }
+
+  // Divider blocks
+  if (draft.dividerBlocks?.length) {
+    sections.push(`
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;margin-bottom:16px">
+        <h2 style="font-size:16px;font-weight:700;margin:0 0 12px;color:#334155">Divider Blocks (${draft.dividerBlocks.length})</h2>
+        ${draft.dividerBlocks.map(b => `<p style="margin:4px 0;font-size:13px;color:#64748b">• ${b.props.variant} — ${b.props.lineStyle} (${b.props.color})</p>`).join("")}
+      </div>
+    `);
+  }
+
+  // Icon blocks
+  if (draft.iconBlocks?.length) {
+    sections.push(`
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;margin-bottom:16px">
+        <h2 style="font-size:16px;font-weight:700;margin:0 0 12px;color:#334155">Icon Blocks (${draft.iconBlocks.length})</h2>
+        ${draft.iconBlocks.map(b => `<p style="margin:4px 0;font-size:13px;color:#64748b">• ${b.props.iconType} — ${b.props.color} (${b.props.size}px)</p>`).join("")}
+      </div>
+    `);
+  }
+
+  sections.push(`</div>`);
+  return sections.join("\n");
+}
+ 
+export default function BlockPreviewPage() {
+  const searchParams = useSearchParams();
+  const projectIdParam = searchParams.get("projectId");
+  const templateParam = searchParams.get("template") as TextTemplateType | null;
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewDevice, setPreviewDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
+  const [draftError, setDraftError] = useState<string | null>(null);
+ 
+  const isIframeMode = typeof window !== "undefined" && window.location.search.includes("mode=iframe");
+  const iframeViewportDevice = (searchParams.get("device") as BlockpagesPreviewCaptureDevice | null) ?? "desktop";
+ 
+  useEffect(() => bindPortfolioProjectsSliderNavDelegation(), []);
+ 
+  // Load preview from backend if projectId is present, otherwise from localStorage
+  useEffect(() => {
+
+    if (projectIdParam) {
+      // MODE 2: Saved draft preview
+      let cancelled = false;
+      const controller = new AbortController();
+
+      (async () => {
+        try {
+          const { project, draft } = await loadBlockPagesDraft(projectIdParam, controller.signal);
+          if (cancelled) return;
+
+          const targetTemplate = draft?.template ?? templateParam ?? "construction";
+          const snapshotKey = getBlockpagesPreviewSnapshotKey(targetTemplate);
+          const snapshotHtml = readBlockpagesStorageItem(snapshotKey);
+
+          if (snapshotHtml?.trim()) {
+            setPreviewDevice("desktop");
+            setPreviewHtml(sanitizeBlockpagesPreviewHtml(snapshotHtml));
+            return;
+          }
+
+          if (project.htmlContent?.trim()) {
+            setPreviewHtml(project.htmlContent);
+            return;
+          }
+
+          if (draft) {
+            const summaryHtml = renderDraftPreviewHtml(draft);
+            setPreviewHtml(summaryHtml);
+          } else {
+            setDraftError("No saved content found for this draft.");
+            setPreviewHtml("");
+          }
+        } catch (err) {
+          if (!cancelled) {
+            console.error("Failed to load draft preview:", err);
+            setDraftError("Failed to load saved draft.");
+            setPreviewHtml("");
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        controller.abort();
+      };
+    }
+
+    // MODE 1: Current editor state preview (localStorage)
+    const activeTemplate =
+      templateParam ?? (readBlockpagesStorageItem("stackly-last-active-template") as TextTemplateType | null) ?? "construction";
+    const templateSnapshotKey = getBlockpagesPreviewSnapshotKey(activeTemplate);
+
+    const loadPreview = () => {
+      const templateHtml = readBlockpagesStorageItem(templateSnapshotKey);
+      const rawHtml = (templateHtml && templateHtml.trim()) ? templateHtml : (readBlockpagesStorageItem(TEXTBLOCK_PREVIEW_STORAGE_KEY) ?? "");
+      setPreviewDevice("desktop");
+      setPreviewHtml(sanitizeBlockpagesPreviewHtml(rawHtml));
+    };
+ 
+    const frameId = window.requestAnimationFrame(() => {
+      loadPreview();
+    });
+ 
+    const handleStorage = (event: StorageEvent) => {
+      const previewKeys = new Set([
+        TEXTBLOCK_PREVIEW_STORAGE_KEY,
+        getBlockpagesStorageKey(TEXTBLOCK_PREVIEW_STORAGE_KEY),
+        templateSnapshotKey,
+        getBlockpagesStorageKey(templateSnapshotKey),
+      ]);
+      if (!event.key || !previewKeys.has(event.key)) return;
+      const templateHtml = readBlockpagesStorageItem(templateSnapshotKey);
+      const nextHtml = event.newValue ?? ((templateHtml && templateHtml.trim()) ? templateHtml : (readBlockpagesStorageItem(TEXTBLOCK_PREVIEW_STORAGE_KEY) ?? ""));
+      setPreviewHtml(sanitizeBlockpagesPreviewHtml(nextHtml));
+    };
+ 
+    window.addEventListener("storage", handleStorage);
+ 
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [projectIdParam, searchParams]);
+ 
+  useEffect(() => {
+    if (!previewHtml) return;
+
+    let unbindPreviewInteractions = () => {};
+    const timeoutId = window.setTimeout(() => {
+      const viewportDevice = isIframeMode ? iframeViewportDevice : previewDevice;
+      applyBlockpagesPreviewViewportDevice(document, viewportDevice);
+      document.querySelector<HTMLElement>("[data-blockpages-preview-root]")?.scrollTo(0, 0);
+      window.scrollTo(0, 0);
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+
+              if (entry.target.classList.contains("skill-progress-bar")) {
+                const targetWidth = (entry.target as HTMLElement).dataset.targetWidth;
+                if (targetWidth) {
+                  (entry.target as HTMLElement).style.width = targetWidth;
+                }
+              }
+
+              if (entry.target.classList.contains("stat-animate-count")) {
+                animateStatCounterElement(entry.target as HTMLElement);
+              }
+
+              observer.unobserve(entry.target);
+            }
+          });
+        },
+        { threshold: 0.1 }
+      );
+
+      document.querySelectorAll(".portfolio-reveal:not(.is-visible)").forEach((el) => {
+        el.classList.add("is-visible");
+      });
+
+      document.querySelectorAll(".portfolio-reveal").forEach((el) => {
+        if (el.closest("[data-blockpages-preview-root='true']")) return;
+        el.classList.remove("is-visible");
+        observer.observe(el);
+      });
+
+      document.querySelectorAll(".skill-progress-bar").forEach((el) => {
+        const htmlEl = el as HTMLElement;
+        htmlEl.style.width = "0%";
+        // Force a reflow so the transition from 0% is registered
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        htmlEl.offsetHeight;
+        observer.observe(el);
+      });
+
+      document.querySelectorAll(".stat-animate-count").forEach((el) => {
+        el.textContent = "0";
+        observer.observe(el);
+      });
+
+      unbindPreviewInteractions = bindBlockpagesPreviewInteractions(document);
+    }, 50);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      unbindPreviewInteractions();
+    };
+  }, [previewHtml, isIframeMode, iframeViewportDevice, previewDevice]);
+ 
+  if (previewHtml === null) {
+    return <main className="min-h-screen bg-[#f5f7fb]" />;
+  }
+ 
+  if (!previewHtml) {
+    const activeTemplate =
+      templateParam ?? (readBlockpagesStorageItem("stackly-last-active-template") as TextTemplateType | null) ?? "construction";
+    const route = BLOCKPAGES_PREVIEW_ROUTES[activeTemplate] || "/construction";
+
+    return (
+      <main className="min-h-screen w-full bg-white">
+        <iframe
+          src={routePath(route)}
+          className="h-screen w-full border-none"
+          title={`${activeTemplate} preview`}
+        />
+      </main>
+    );
+  }
+
+  if (isIframeMode) {
+    return <main className="min-h-0 bg-[#f5f7fb]" dangerouslySetInnerHTML={{ __html: previewHtml }} />;
+  }
+
+  const activeTemplateForIframe =
+    templateParam ?? (readBlockpagesStorageItem("stackly-last-active-template") as TextTemplateType | null) ?? "construction";
+  const responsiveIframeSrc = routePath(
+    `/blockpages/preview?mode=iframe&template=${encodeURIComponent(activeTemplateForIframe)}&device=${encodeURIComponent(previewDevice)}${projectIdParam ? `&projectId=${projectIdParam}` : ""}`
+  );
+  const useFramedDesktop =
+    previewDevice === "desktop" && FRAMED_DESKTOP_TEMPLATES.has(activeTemplateForIframe);
+  const useDeviceFrame = previewDevice !== "desktop" || useFramedDesktop;
+
+  return (
+    <>
+      <div
+        className="pointer-events-none fixed bottom-5 left-1/2 z-50 -translate-x-1/2 sm:bottom-6"
+        data-device-preview-toolbar="true"
+      >
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-[#E5E7EB] bg-white px-3 py-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+          <button
+            type="button"
+            onClick={() => setPreviewDevice("desktop")}
+            className={`flex h-8 w-8 items-center justify-center rounded-full border shadow-sm transition sm:h-9 sm:w-9 ${previewDevice === "desktop" ? "border-[#06224C] bg-gray-50 text-[#06224C] ring-2 ring-[#06224C]" : "border-gray-100 text-[#06224C]/70 hover:bg-gray-50"}`}
+            title="Desktop View"
+          >
+            <FaLaptop size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setPreviewDevice("tablet")}
+            className={`flex h-8 w-8 items-center justify-center rounded-full border shadow-sm transition sm:h-9 sm:w-9 ${previewDevice === "tablet" ? "border-[#06224C] bg-gray-50 text-[#06224C] ring-2 ring-[#06224C]" : "border-gray-100 text-[#06224C]/70 hover:bg-gray-50"}`}
+            title="Tablet View"
+          >
+            <FaTabletAlt size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setPreviewDevice("mobile")}
+            className={`flex h-8 w-8 items-center justify-center rounded-full border shadow-sm transition sm:h-9 sm:w-9 ${previewDevice === "mobile" ? "border-[#06224C] bg-gray-50 text-[#06224C] ring-2 ring-[#06224C]" : "border-gray-100 text-[#06224C]/70 hover:bg-gray-50"}`}
+            title="Mobile View"
+          >
+            <FaMobileAlt size={14} />
+          </button>
+        </div>
+      </div>
+      <div
+        className={`min-h-screen transition-colors duration-500 ${
+          useDeviceFrame
+            ? "bg-[#F3F4F6] py-4 pb-24 flex justify-center items-start overflow-y-auto md:py-8 md:px-4 px-2"
+            : "bg-[#f5f7fb] pb-24"
+        }`}
+      >
+        <div
+          className={`mx-auto w-full min-w-0 transition-all duration-500 ease-in-out ${
+            previewDevice === "mobile"
+              ? "max-w-[375px] h-[85vh] rounded-[2.5rem] border-[8px] border-gray-800 shadow-2xl bg-white overflow-hidden relative flex flex-col shrink-0"
+              : previewDevice === "tablet"
+                ? "max-w-[768px] h-[90vh] rounded-[2rem] border-[8px] border-gray-800 shadow-2xl bg-white overflow-hidden relative flex flex-col shrink-0"
+                : useFramedDesktop
+                  ? "max-w-[1200px] h-[85vh] rounded-[1.75rem] border-2 border-gray-300 shadow-2xl bg-white overflow-hidden relative flex flex-col shrink-0"
+                  : "max-w-full"
+          }`}
+        >
+          {useDeviceFrame ? (
+            <iframe
+              src={responsiveIframeSrc}
+              className="w-full h-full border-none bg-white"
+              title={`${previewDevice} Preview`}
+            />
+          ) : (
+            <main className="min-h-screen bg-[#f5f7fb]" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+ 
+ 
+ 

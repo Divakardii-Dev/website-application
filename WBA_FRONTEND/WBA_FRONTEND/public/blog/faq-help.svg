@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" fill="none" role="img" aria-labelledby="faqIllustrationTitle">
+  <title id="faqIllustrationTitle">FAQ help illustration</title>
+  <defs>
+    <linearGradient id="faqBg" x1="0" y1="0" x2="480" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#eaf2ff"/>
+      <stop offset="1" stop-color="#fff0f0"/>
+    </linearGradient>
+    <linearGradient id="faqAccent" x1="120" y1="80" x2="360" y2="400" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2d8cf0"/>
+      <stop offset="1" stop-color="#001f3f"/>
+    </linearGradient>
+    <filter id="faqShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#001f3f" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="480" height="480" rx="24" fill="url(#faqBg)"/>
+  <g filter="url(#faqShadow)">
+    <rect x="72" y="88" width="336" height="304" rx="20" fill="#ffffff"/>
+  </g>
+  <circle cx="240" cy="168" r="52" fill="url(#faqAccent)" opacity="0.12"/>
+  <text x="240" y="188" text-anchor="middle" font-family="system-ui, Segoe UI, sans-serif" font-size="72" font-weight="800" fill="url(#faqAccent)">?</text>
+  <rect x="120" y="248" width="240" height="12" rx="6" fill="#d1d5db"/>
+  <rect x="120" y="276" width="200" height="10" rx="5" fill="#e5e7eb"/>
+  <rect x="120" y="302" width="220" height="10" rx="5" fill="#e5e7eb"/>
+  <rect x="120" y="328" width="168" height="10" rx="5" fill="#e5e7eb"/>
+  <g>
+    <rect x="88" y="112" width="108" height="56" rx="14" fill="#2d8cf0" opacity="0.95"/>
+    <text x="142" y="148" text-anchor="middle" font-family="system-ui, Segoe UI, sans-serif" font-size="18" font-weight="700" fill="#ffffff">FAQ</text>
+  </g>
+  <g>
+    <rect x="300" y="96" width="88" height="48" rx="12" fill="#ffffff" stroke="#2d8cf0" stroke-width="2"/>
+    <circle cx="324" cy="120" r="6" fill="#2d8cf0"/>
+    <rect x="338" y="114" width="36" height="6" rx="3" fill="#d1d5db"/>
+    <rect x="338" y="126" width="28" height="6" rx="3" fill="#e5e7eb"/>
+  </g>
+  <g>
+    <rect x="56" y="300" width="96" height="72" rx="16" fill="#001f3f" opacity="0.92"/>
+    <rect x="76" y="322" width="56" height="8" rx="4" fill="#ffffff" opacity="0.9"/>
+    <rect x="76" y="338" width="44" height="6" rx="3" fill="#ffffff" opacity="0.5"/>
+    <rect x="76" y="352" width="52" height="6" rx="3" fill="#ffffff" opacity="0.5"/>
+  </g>
+  <circle cx="368" cy="352" r="36" fill="#2d8cf0" opacity="0.15"/>
+  <path d="M352 352h32M368 336v32" stroke="#2d8cf0" stroke-width="4" stroke-linecap="round"/>
+</svg>
