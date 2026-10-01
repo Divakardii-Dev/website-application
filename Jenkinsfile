@@ -13,7 +13,7 @@ pipeline {
 
         PROJECT_DIR  = '/home/ubuntu/website-application'
         FRONTEND_DIR = "${PROJECT_DIR}/WBA_FRONTEND"
-        BACKEND_DIR  = "${PROJECT_DIR}/WBA_BACKEND 2"
+        BACKEND_DIR  = "${PROJECT_DIR}/WBA_BACKEND"
     }
 
     stages {
@@ -43,6 +43,7 @@ pipeline {
             }
         }
 
+
         // ============================================================
         // Configure Environment
         // ============================================================
@@ -67,12 +68,10 @@ pipeline {
                     sh '''
                         echo "Configuring environment files..."
 
-                        # Backend environment file
                         install -m 600 \
                             "$BACKEND_ENV" \
                             "$PROJECT_DIR/.env"
 
-                        # Frontend environment file
                         install -m 600 \
                             "$FRONTEND_ENV" \
                             "$FRONTEND_DIR/.env.local"
@@ -82,6 +81,7 @@ pipeline {
                 }
             }
         }
+
 
         // ============================================================
         // Build Docker Images
@@ -95,13 +95,14 @@ pipeline {
                     sh '''
                         echo "Building Docker Compose images..."
 
-                        docker compose -f docker-compose.yml build
+                        docker compose build
 
                         echo "Docker images built successfully."
                     '''
                 }
             }
         }
+
 
         // ============================================================
         // Deploy
@@ -115,17 +116,18 @@ pipeline {
                     sh '''
                         echo "Stopping existing containers..."
 
-                        docker compose -f docker-compose.yml down
+                        docker compose down
 
                         echo "Starting application containers..."
 
-                        docker compose -f docker-compose.yml up -d
+                        docker compose up -d
 
                         echo "Application containers started."
                     '''
                 }
             }
         }
+
 
         // ============================================================
         // Verify Deployment
@@ -146,7 +148,7 @@ pipeline {
 
                         while true; do
 
-                            HEALTHY=$(docker compose -f docker-compose.yml ps \
+                            HEALTHY=$(docker compose ps \
                                 --format '{{.Health}}' \
                                 | grep -c '^healthy$' || true)
 
@@ -165,13 +167,13 @@ pipeline {
                                 echo "Container Status"
                                 echo "========================================"
 
-                                docker compose -f docker-compose.yml ps
+                                docker compose ps
 
                                 echo "========================================"
                                 echo "Container Logs"
                                 echo "========================================"
 
-                                docker compose -f docker-compose.yml logs --tail=100
+                                docker compose logs --tail=100
 
                                 exit 1
                             fi
@@ -188,7 +190,7 @@ pipeline {
                         echo "Deployment Verification Successful"
                         echo "========================================"
 
-                        docker compose -f docker-compose.yml ps
+                        docker compose ps
 
                         echo "========================================"
                         echo "Docker Cleanup"
@@ -199,13 +201,13 @@ pipeline {
 
                         echo "Docker cleanup completed."
 
-                        echo "Current Docker disk usage:"
                         docker system df
                     '''
                 }
             }
         }
     }
+
 
     // ================================================================
     // Post Actions
@@ -249,5 +251,4 @@ Docker Compose logs for details.
         }
     }
 }
-
 
