@@ -1,4 +1,3 @@
-```groovy
 pipeline {
 
     agent {
@@ -250,5 +249,5 @@ Docker Compose logs for details.
         }
     }
 }
-```
+
 
