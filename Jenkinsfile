@@ -1,3 +1,4 @@
+```groovy
 pipeline {
 
     agent {
@@ -95,7 +96,7 @@ pipeline {
                     sh '''
                         echo "Building Docker Compose images..."
 
-                        docker compose -f docker-composefile build
+                        docker compose -f docker-compose.yml build
 
                         echo "Docker images built successfully."
                     '''
@@ -115,11 +116,11 @@ pipeline {
                     sh '''
                         echo "Stopping existing containers..."
 
-                        docker compose -f docker-composefile down
+                        docker compose -f docker-compose.yml down
 
                         echo "Starting application containers..."
 
-                        docker compose -f docker-composefile up -d
+                        docker compose -f docker-compose.yml up -d
 
                         echo "Application containers started."
                     '''
@@ -146,7 +147,7 @@ pipeline {
 
                         while true; do
 
-                            HEALTHY=$(docker compose -f docker-composefile ps \
+                            HEALTHY=$(docker compose -f docker-compose.yml ps \
                                 --format '{{.Health}}' \
                                 | grep -c '^healthy$' || true)
 
@@ -165,13 +166,13 @@ pipeline {
                                 echo "Container Status"
                                 echo "========================================"
 
-                                docker compose -f docker-composefile ps
+                                docker compose -f docker-compose.yml ps
 
                                 echo "========================================"
                                 echo "Container Logs"
                                 echo "========================================"
 
-                                docker compose -f docker-composefile logs --tail=100
+                                docker compose -f docker-compose.yml logs --tail=100
 
                                 exit 1
                             fi
@@ -188,7 +189,7 @@ pipeline {
                         echo "Deployment Verification Successful"
                         echo "========================================"
 
-                        docker compose -f docker-composefile ps
+                        docker compose -f docker-compose.yml ps
 
                         echo "========================================"
                         echo "Docker Cleanup"
@@ -249,3 +250,5 @@ Docker Compose logs for details.
         }
     }
 }
+```
+
