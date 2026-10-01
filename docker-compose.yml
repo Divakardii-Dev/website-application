@@ -24,7 +24,7 @@ services:
 
   backend:
     build:
-      context: ./WBA_BACKEND 2
+      context: "./WBA_BACKEND 2/WBA_BACKEND"
       dockerfile: Dockerfile
     container_name: Demo-backend
     restart: unless-stopped
@@ -50,7 +50,7 @@ services:
 
   frontend:
     build:
-      context: ./WBA_FRONTEND
+      context: "./WBA_FRONTEND/WBA_FRONTEND"
       dockerfile: Dockerfile
     container_name: Demo-frontend
     restart: unless-stopped
