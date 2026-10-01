@@ -1,0 +1,80 @@
+services:
+  mongodb:
+    image: mongo:8
+    container_name: Demo-mongodb
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    expose:
+      - "27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' | grep 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - Demo-network
+
+  backend:
+    build:
+      context: ./WBA_BACKEND 2
+      dockerfile: Dockerfile
+    container_name: Demo-backend
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    expose:
+      - "5000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:5000/health || exit 1"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - Demo-network
+
+  frontend:
+    build:
+      context: ./WBA_FRONTEND
+      dockerfile: Dockerfile
+    container_name: Demo-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - Demo-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  Demo-network:
+    driver: bridge
